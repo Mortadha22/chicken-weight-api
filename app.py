@@ -6,6 +6,8 @@ import joblib
 import random
 import hashlib
 import os
+from PIL import Image  # ✅ ADD THIS LINE
+
 
 app = Flask(__name__)
 
