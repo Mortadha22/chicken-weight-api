@@ -5,6 +5,7 @@ from ultralytics import YOLO
 import joblib
 import random
 import hashlib
+import os
 
 app = Flask(__name__)
 
@@ -18,32 +19,35 @@ def get_color_from_id(chicken_id):
     random.seed(hash_value)
     return tuple(random.randint(100, 255) for _ in range(3))
 
-@app.route('/predict', methods=['POST'])
+@app.route("/predict", methods=["POST"])
 def predict():
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image uploaded'}), 400
+    try:
+        if 'image' not in request.files:
+            return jsonify({"error": "No image uploaded"}), 400
+        
+        image_file = request.files['image']
+        image = Image.open(image_file.stream).convert("RGB")
 
-    file = request.files['image']
-    npimg = np.frombuffer(file.read(), np.uint8)
-    frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+        results = yolo_model.predict(image, verbose=False)
+        boxes = results[0].boxes.xyxy.cpu().numpy()
 
-    results = yolo_model.predict(frame, verbose=False)
-    boxes = results[0].boxes.xyxy.cpu().numpy()
+        predictions = []
+        for box in boxes:
+            x1, y1, x2, y2 = map(int, box)
+            area = (x2 - x1) * (y2 - y1)
+            weight = regression_model.predict([[area]])[0]
+            predictions.append({
+                "box": [x1, y1, x2, y2],
+                "predicted_weight": round(float(weight), 2)
+            })
 
-    predictions = []
-    for box in boxes:
-        x1, y1, x2, y2 = map(int, box)
-        area = (x2 - x1) * (y2 - y1)
-        predicted_weight = regression_model.predict([[area]])[0]
-        color = get_color_from_id((x1, y1, x2, y2))
+        return jsonify({"predictions": predictions})
 
-        predictions.append({
-            'box': [x1, y1, x2, y2],
-            'weight': round(predicted_weight, 2),
-            'color': color
-        })
+    except Exception as e:
+        print("❌ ERROR in /predict:", str(e))
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({'predictions': predictions})
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
